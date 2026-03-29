@@ -1,0 +1,59 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  userName    String   @unique
+  firstName   String
+  lastName    String
+  hash        String
+  mainFolderId  Int?    @unique
+  createdAt   DateTime @default(now())
+
+  mainFolder  Folder?   @relation("UserMainFolder", fields: [mainFolderId], references: [id])
+  folders     Folder[] @relation("UserFolderOwnership")
+  files       File[]   @relation("UserFileOwnership")
+}
+
+model Folder {
+  id          Int     @id @default(autoincrement()) 
+  userId      Int
+  name        String  
+  parentId    Int?
+  createdAt   DateTime  @default(now())
+  
+
+  user        User    @relation("UserFolderOwnership",fields: [userId], references: [id] ) 
+  parent      Folder?  @relation("ParentFolderOwnership",fields: [parentId], references: [id] )
+  children    Folder[]  @relation("ParentFolderOwnership")
+  files       File[]  @relation("FolderFileOwnership")
+  mainOf      User?    @relation("UserMainFolder")
+
+  @@unique([parentId, name])        //no duplicate names in the same folder
+}
+
+model File {
+  id          Int      @id @default(autoincrement())
+  userid      Int
+  folderid    Int
+  name        String
+  size        Int
+  url         String
+  createdAt   DateTime  @default(now())
+
+  user        User     @relation("UserFileOwnership", fields: [userid], references: [id])
+  folder      Folder   @relation("FolderFileOwnership", fields: [folderid], references: [id])
+
+  @@unique([folderid, name])        //no duplicate file name in folder
+}
