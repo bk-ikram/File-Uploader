@@ -1,0 +1,36 @@
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+    <%- include('partials/navBar') %>
+        <h1>
+            <%= title %>
+        </h1>
+        <!-- Load validation errors, if any -->
+        <%- include('partials/validation-errors') %>
+        <% if (locals.loginFailed) { %>
+            <p class="error">Invalid username or password. Please try again.</p>
+        <% } %>
+        <h2>Log into your account</h2>
+        <form action="/login" method="post">
+
+            <p>
+                <label for="username">Username:</label>
+                <input id="username" name="username" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.username ?? "" %>>
+            </p>
+            <p>
+                <label for="password">Password:</label>
+                <input id="password" name="password" type="password" minlength="5" maxlength="30" required>
+            </p>
+            <button type="submit">Login</button>
+        </form>
+</body>
+
+</html>

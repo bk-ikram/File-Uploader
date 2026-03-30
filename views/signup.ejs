@@ -1,0 +1,48 @@
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+    <%- include('partials/navBar') %>
+        <h1>
+            <%= title %>
+        </h1>
+        <!-- Load validation errors, if any -->
+        <%- include('partials/validation-errors') %>
+        <!-- If registration successful, inform user and offer login link -->
+        <% if (locals.success) {%>
+        <p>You have successfully registered. You can now <a href="/login">login</a> now!</p>
+        <% }; %>
+        <h2>Register a new account</h2>
+        <form action="/signup" method="post">
+            <p>
+                <label for="firstname">First Name:</label>
+                <input id="firstname" name="firstname" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.firstname ?? "" %>>
+            </p>
+            <p>
+                <label for="lastname">Last Name:</label>
+                <input id="lastname" name="lastname" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.lastname ?? "" %>>
+            </p>
+            <p>
+                <label for="username">Username:</label>
+                <input id="username" name="username" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.username ?? "" %>>
+            </p>
+            <p>
+                <label for="password">Password:</label>
+                <input id="password" name="password" type="password" minlength="5" maxlength="30" required>
+            </p>
+            <p>
+                <label for="conf-password">Confirm Password:</label>
+                <input id="conf-password" name="conf-password" type="password" minlength="5" maxlength="30" required>
+            </p>
+            <button type="submit">Register</button>
+        </form>
+</body>
+
+</html>

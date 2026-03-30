@@ -2,8 +2,8 @@ const express = require("express");
 const path = require("node:path");
 const session = require("express-session");
 const passport = require("passport");
-const { pool } = require("./db/setup/connections");
-const pgSession = require('connect-pg-simple')(session);
+const { prisma } = require('./lib/prisma');
+const { PrismaSessionStore } = require('@quixo3/prisma-session-store');
 const appRouter = require("./routes/appRouter");
 const moment = require("moment");
 
@@ -29,10 +29,15 @@ app.use(session({
     secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
-    store: new pgSession({
-        pool: pool,
-        createTableIfMissing: true
-    }),
+    store: new PrismaSessionStore(
+        prisma,
+        {
+            checkPeriod: 2 * 60 * 100,  //ms
+            dbRecordIdIsSessionId: true,
+            dbRecordIdFunction: undefined,
+
+        }
+    ),
     cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } //30 days
 }));
 
@@ -68,7 +73,7 @@ app.use(function(err, req, res, next) {
   //res.render('error');
   console.log(err.stack);
   console.log(err.message);
-  res.send("Something went wrong.");
+  res.send("Something went wrong.", err.stack, err.message);
 });
 
 
