@@ -43,22 +43,37 @@ async function getUserByUsername(username){
     })
 }
 
-async function getFolderContents(folderid){
-    const getchildFolders = () => prisma.folder.findMany({
+async function getchildFolders(folderid) {
+    prisma.folder.findMany({
         where: {
             parentId: folderid
         }
     })
+} 
 
-    const getFiles = () => prisma.file.findMany({
+async function getFiles(folderid) {
+    prisma.file.findMany({
         where: {
             folderid: folderid
         }
     })
+}
 
-    const [folders, files] = await Promise.all([getchildFolders(), getFiles()]);
+async function getFolderContents(folderid){
+
+    const [folders, files] = await Promise.all([getchildFolders(folderid), getFiles(folderid)]);
     return { folders, files };
 }
+
+/*
+async function getFolderbyId(folder){
+    return prisma.folder.findUnique({
+        where: {
+            id: folder
+        }
+    })
+}
+    */
 
 async function getUserMainFolder(userId){
     //chose to search in user table because there are fewer users than folders.
@@ -74,10 +89,25 @@ async function getUserMainFolder(userId){
     return user.mainFolder;
 }
 
+async function createFolder(folderid, userid, name){
+    return prisma.folder.create({
+        data: {
+            name: name,
+            parentId: folderid,
+            userId: userid,
+        }
+    })
+
+}
+
+
 module.exports ={
     insertUser,
     getUserById,
     getUserByUsername,
     getFolderContents,
-    getUserMainFolder
+    getUserMainFolder,
+    getFiles,
+    getchildFolders,
+    createFolder
 }

@@ -1,5 +1,9 @@
 const { body } = require("express-validator");
 require('dotenv').config();
+const { 
+        getchildFolders
+
+     } = require("../repositories/queries");
 
 const emptyMsg = "cannot be empty";
 const lengthMsg = "should be between 5 and 30 characters";
@@ -35,4 +39,22 @@ module.exports.signupValidation = [
         if (value !== req.body.password) throw new Error("Password did not match");
         return true;
     }),
+];
+
+module.exports.folderValidation = [
+    body("foldername")
+        .trim()
+        .notEmpty()
+        .withMessage("Folder name " + emptyMsg)
+        .isLength({min: 5, max: 30})
+        .withMessage("Folder name " + lengthMsg)//add custom validation to make sure name does not already exist in current folder.
+        .custom(async (value, { req }) => {
+            const folderid = req.params.folderid
+            const nameInput = value.trim().lower();
+            const childFolders = await getchildFolders(folderid);
+            const match = childFolders.find( (existing) => existing.lower() == nameInput);
+            if(match) throw new Error(`The folder ${match} already exists. Please choose a different name.`)
+                return true;
+
+        })   
 ];

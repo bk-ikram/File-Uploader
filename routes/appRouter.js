@@ -1,7 +1,9 @@
 const { Router } = require('express');
 const appRouter = Router();
 const appController = require("../controllers/appController");
-const { signupValidation } = require("../middleware/validation");
+const { signupValidation
+        ,folderValidation
+ } = require("../middleware/validation");
 const { isAuth } = require('../middleware/authMiddleware');
 
 //universal
@@ -33,7 +35,13 @@ appRouter.get("/logout", appController.logoutGet);
 
 
 //folder get
-appRouter.get("/folder", isAuth, appController.folderGet);
+appRouter.get("/folder{/:folderid}", isAuth, appController.folderGet);
+
+//folder post
+appRouter.post("/folder/:folderid/create"
+                ,isAuth
+                ,folderValidation
+                ,appController.folderCreatePost);
 
 
 module.exports = appRouter;

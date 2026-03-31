@@ -3,7 +3,8 @@ const { genPassword } = require("../lib/passwordUtils");
 const { 
         insertUser, 
         getUserMainFolder,
-        getFolderContents
+        getFolderContents,
+        createFolder
 
      } = require("../repositories/queries");
 const passport = require("passport");
@@ -76,84 +77,38 @@ exports.logoutGet = (req, res, next) => {
 }
 
 exports.folderGet = async (req, res, next) => {
+    console.log("attempting to access folder");
     const userId = req.user.id;
 
+    //get current folderid. If none supplied, then serve user's main folder.
+    const folderid = req.params.folderid;
+    let mainFolderid;
+    if(!folderid){
+        const mainFolder = await getUserMainFolder(userId);
+        const mainFolderid = mainFolder.id;
+    }
     //get user's main folder
-    const mainFolder = await getUserMainFolder(userId);
-    const mainFolderContents = await getFolderContents(mainFolder.id);
-    console.log("TheMainFolderContentssssssssss",JSON.stringify(mainFolderContents));
+    const folderContents = await getFolderContents(folderid || mainFolderid);
 
+    
     res.render("folder", {
         title: "Your files here",
         currentUrl: req.originalUrl,
-        folders: mainFolderContents.folders,
-        files: mainFolderContents.files
-
+        currentFolderId: req.folderid || mainFolderid,
+        folders: folderContents.folders,
+        files: folderContents.files
     })
 
+}
+
+exports.folderCreatePost = async(req, res, next) => {
+    const parentFolderId = req.body.parentFolderId;
+    const userid = req.userid;
+    const name = req.body.foldername;
+
+    await createFolder( parentFolderId, userid, name );
+
+    res.redirect(`/folder/${parentFolderId}`);
 
 }
 
-
-exports.messageFormGet = (req, res, next) => {
-  res.render("messageForm", {
-        title: "New Message"
-    });
-}
-
-exports.messageFormPost = async(req, res, next) => {
-    try{
-        const errors = validationResult(req);
-
-        if(!errors.isEmpty()){
-            res.errors = errors.array;
-            res.render("messageForm",{
-                title: "Creating Message Failed",
-                errors: errors.array(),
-                userInput: req.body,
-            })
-        }
-        else {
-            const { title, message } = req.body;
-            const userid = req.user.userid;
-            //need to insert message into the db
-            await insertMessage(userid, title, message);
-            //redirect to homepage
-            res.redirect('/');
-        }
-    }
-    catch (err) {
-        next(err);
-    }
-};
-
-exports.messageDeletePost = async(req, res, next) => {
-    try{
-        const messageId = req.params.messageid;
-        const { userid, isAdmin} = req.user;
-        const isOwner = await verifyMessageAuthor(messageId, userid);
-        if(isOwner || isAdmin){
-            await deleteMessage(messageId);
-            res.redirect("/");
-        }
-        else{
-            res.status(401).send("You are not allowed to perform this action.")
-        }
-        
-    }
-    catch(err){
-        next(err);
-    }
-};
-
-
-
-exports.becomeMemberPost = async(req, res, next) => {
-    try{
-        await grantMembership(req.userid);
-        res.redirect("/");
-        }
-    catch(err){
-        next(err);
-    }
-};
