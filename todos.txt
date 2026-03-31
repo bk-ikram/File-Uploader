@@ -1,0 +1,4 @@
+1) start implementing breadcrumbs in either url or UI or both.
+2) add functionality to CUD folders.
+3) add file upload form
+4)
