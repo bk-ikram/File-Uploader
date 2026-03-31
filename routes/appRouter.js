@@ -31,4 +31,9 @@ appRouter.post("/login"
 //logout
 appRouter.get("/logout", appController.logoutGet);
 
+
+//folder get
+appRouter.get("/folder", isAuth, appController.folderGet);
+
+
 module.exports = appRouter;

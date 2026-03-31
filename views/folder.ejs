@@ -1,0 +1,33 @@
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title><%= title %></title>
+</head>
+<body>
+  <%- include('partials/navBar') %>
+  <!-- Load errors, if any -->
+  <%- include('partials/validation-errors') %>
+  <h1><%= title %></h1>
+  <% if (!locals.user) {%>
+    <p>Please log in to access your files !</p>
+  <% } else { %>
+    <h2>Folders</h2>
+    <ul>
+    <% if(locals.folders) { %>
+        <% locals.folders.forEach( (f) => { %>
+            <li><a href="/folder/<%- f.id %>"><%- f.name %></a></li>
+        <% });%>
+    <% } %>
+    </ul>
+    <h2>Files</h2>
+    <ul>
+    <% if(locals.files) {%>
+        <% locals.files.forEach( (f) => { %>
+            <li><%- f.name %></li>
+        <% });%>
+    <% } %>
+    </ul> 
+  <% };%>
+</body>
+</html>

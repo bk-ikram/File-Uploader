@@ -2,18 +2,21 @@ const { validationResult } = require("express-validator");
 const { genPassword } = require("../lib/passwordUtils");
 const { 
         insertUser, 
-        insertMessage, 
-        getAllMessageDetails,
-        deleteMessage,
-        verifyMessageAuthor,
-        grantMembership
+        getUserMainFolder,
+        getFolderContents
+
      } = require("../repositories/queries");
 const passport = require("passport");
 
 exports.appGet = ( req, res) => {
-    res.render("index", {
-        title: "Welcome to File Uploader"
-    });
+    if(req.user){
+        res.redirect("/folder");
+    }
+    else{
+        return res.render("index", {
+            title: "Welcome to File Uploader"
+        });
+    }
 };
 
 exports.signupGet = ( req, res) => {
@@ -71,6 +74,26 @@ exports.logoutGet = (req, res, next) => {
     res.redirect('/');
   });
 }
+
+exports.folderGet = async (req, res, next) => {
+    const userId = req.user.id;
+
+    //get user's main folder
+    const mainFolder = await getUserMainFolder(userId);
+    const mainFolderContents = await getFolderContents(mainFolder.id);
+    console.log("TheMainFolderContentssssssssss",JSON.stringify(mainFolderContents));
+
+    res.render("folder", {
+        title: "Your files here",
+        currentUrl: req.originalUrl,
+        folders: mainFolderContents.folders,
+        files: mainFolderContents.files
+
+    })
+
+
+}
+
 
 exports.messageFormGet = (req, res, next) => {
   res.render("messageForm", {

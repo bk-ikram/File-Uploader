@@ -43,8 +43,41 @@ async function getUserByUsername(username){
     })
 }
 
+async function getFolderContents(folderid){
+    const getchildFolders = () => prisma.folder.findMany({
+        where: {
+            parentId: folderid
+        }
+    })
+
+    const getFiles = () => prisma.file.findMany({
+        where: {
+            folderid: folderid
+        }
+    })
+
+    const [folders, files] = await Promise.all([getchildFolders(), getFiles()]);
+    return { folders, files };
+}
+
+async function getUserMainFolder(userId){
+    //chose to search in user table because there are fewer users than folders.
+    const user =  await prisma.user.findUnique({
+        where: {
+            id: userId
+        },
+        include: {
+            mainFolder: true
+        }
+    })
+
+    return user.mainFolder;
+}
+
 module.exports ={
     insertUser,
     getUserById,
-    getUserByUsername
+    getUserByUsername,
+    getFolderContents,
+    getUserMainFolder
 }
