@@ -22,7 +22,7 @@ model User {
   mainFolderId  Int?    @unique
   createdAt   DateTime @default(now())
 
-  mainFolder  Folder?   @relation("UserMainFolder", fields: [mainFolderId], references: [id])
+  mainFolder  Folder?   @relation("UserMainFolder", fields: [mainFolderId], references: [id], onUpdate: Cascade)
   folders     Folder[] @relation("UserFolderOwnership")
   files       File[]   @relation("UserFileOwnership")
 }
@@ -35,8 +35,8 @@ model Folder {
   createdAt   DateTime  @default(now())
   
 
-  user        User    @relation("UserFolderOwnership",fields: [userId], references: [id] ) 
-  parent      Folder?  @relation("ParentFolderOwnership",fields: [parentId], references: [id] )
+  user        User    @relation("UserFolderOwnership",fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade) 
+  parent      Folder?  @relation("ParentFolderOwnership",fields: [parentId], references: [id] , onDelete: Cascade, onUpdate: Cascade)
   children    Folder[]  @relation("ParentFolderOwnership")
   files       File[]  @relation("FolderFileOwnership")
   mainOf      User?    @relation("UserMainFolder")
@@ -53,8 +53,8 @@ model File {
   url         String
   createdAt   DateTime  @default(now())
 
-  user        User     @relation("UserFileOwnership", fields: [userid], references: [id])
-  folder      Folder   @relation("FolderFileOwnership", fields: [folderid], references: [id])
+  user        User     @relation("UserFileOwnership", fields: [userid], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  folder      Folder   @relation("FolderFileOwnership", fields: [folderid], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([folderid, name])        //no duplicate file name in folder
 }

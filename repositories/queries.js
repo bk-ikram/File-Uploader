@@ -105,6 +105,23 @@ async function getFolderBreadcrumbs(folderId) {
     return prisma.$queryRawTyped(getFolderHierarchy(folderId));
 }
 
+async function deleteFolder(folderid){
+    return prisma.folder.delete({
+        where: {
+            id: folderid,
+        }
+    })
+}
+
+async function deleteFile(fileid){
+    return prisma.file.delete({
+        where: {
+            id: fileid,
+        }
+    })
+}
+
+
 
 module.exports ={
     insertUser,
@@ -115,5 +132,7 @@ module.exports ={
     getFiles,
     getchildFolders,
     createFolder,
-    getFolderBreadcrumbs
+    getFolderBreadcrumbs,
+    deleteFolder,
+    deleteFile,
 }

@@ -35,13 +35,24 @@ appRouter.get("/logout", appController.logoutGet);
 
 
 //folder get
-appRouter.get("/folder{/:folderid}", isAuth, appController.folderGet);
+appRouter.get("/folder", isAuth, appController.folderGet);
+appRouter.get("/folder/:folderid", isAuth, appController.folderGet);
 
-//folder post
+//folder create post
 appRouter.post("/folder{/:folderid}/create"
                 ,isAuth
                 ,folderValidation
                 ,appController.folderCreatePost);
+
+//folder delete post
+appRouter.post("/folder/:folderid/delete"
+                ,isAuth
+                ,appController.folderDeletePost);
+
+//file delete post
+appRouter.post("/file/:fileid/delete"
+                ,isAuth
+                ,appController.fileDeletePost);
 
 
 module.exports = appRouter;

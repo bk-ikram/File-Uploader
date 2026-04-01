@@ -5,7 +5,9 @@ const {
         getUserMainFolder,
         getFolderContents,
         createFolder,
-        getFolderBreadcrumbs
+        getFolderBreadcrumbs,
+        deleteFolder,
+        deleteFile
 
      } = require("../repositories/queries");
 const passport = require("passport");
@@ -79,6 +81,9 @@ exports.logoutGet = (req, res, next) => {
 }
 
 exports.folderGet = async (req, res, next) => {
+    console.log("requested url: ",req.originalUrl);
+    console.log("query params ",req.query);
+    console.log(" params ",req.params);
     console.log("attempting to access folder");
     const userId = req.user.id;
 
@@ -93,7 +98,6 @@ exports.folderGet = async (req, res, next) => {
     const folderContents = await getFolderContents(folderid || mainFolderid);
 
     const folderBreadcrumbs = await getFolderBreadcrumbs(folderid|| mainFolderid);
-    const breadcrumbNames = folderBreadcrumbs.map( f => f.name);
     res.render("folder", {
         title: "Your files here",
         currentUrl: req.originalUrl,
@@ -102,7 +106,10 @@ exports.folderGet = async (req, res, next) => {
         folders: folderContents.folders,
         files: folderContents.files,
         notification: req.notification,
-        folderBreadcrumbs: folderBreadcrumbs
+        folderBreadcrumbs: folderBreadcrumbs,
+        createFolder: req.query.createFolder === "true",
+        uploadFile: req.query.uploadFile === "true",
+
     })
 
 }
@@ -118,6 +125,26 @@ exports.folderCreatePost = async(req, res, next) => {
     if(folderType === 'subfolder')
         return res.redirect(`/folder/${parentFolderId}`);
     return res.redirect('/folder');
-
 }
 
+exports.folderDeletePost = async(req, res, next) => {
+    const folderId = parseInt(req.body.folderid);
+    const userid = req.user.id;
+    //would add folder owner verification here
+    await deleteFolder(folderId);
+    res.notification = "The folder and its contents have been deleted";
+    if(folderType === 'subfolder')
+        return res.redirect(`/folder/${parentFolderId}`);
+    return res.redirect('/folder');
+}
+
+exports.fileDeletePost = async(req, res, next) => {
+    const fileId = parseInt(req.body.fileid);
+    const userid = req.user.id;
+    //would add file owner verification here
+    await deleteFile(fileId);
+    res.notification = "The file has been deleted";
+    if(folderType === 'subfolder')
+        return res.redirect(`/folder/${parentFolderId}`);
+    return res.redirect('/folder');
+}
