@@ -16,7 +16,7 @@
             <% if(i !== 0) { %>
                 <span>></span>
             <% }; %>
-            <% if (locals.folderType = "mainfolder") {%>
+            <% if (locals.folderType === "mainfolder")  {%>
                 <a href="/folder/"><%= f.name %></a>
             <%} else {%>
                 <a href="/folder/<%= f.id %>"><%= f.name %></a>
