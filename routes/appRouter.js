@@ -38,7 +38,7 @@ appRouter.get("/logout", appController.logoutGet);
 appRouter.get("/folder{/:folderid}", isAuth, appController.folderGet);
 
 //folder post
-appRouter.post("/folder/:folderid/create"
+appRouter.post("/folder{/:folderid}/create"
                 ,isAuth
                 ,folderValidation
                 ,appController.folderCreatePost);

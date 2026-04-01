@@ -5,13 +5,16 @@
   <title><%= title %></title>
 </head>
 <body>
-  <%- include('partials/navBar') %>
+  <%- include('partials/navBar', {folderBreadcrumbs: folderBreadcrumbs, folderType: folderType}) %>
   <!-- Load errors, if any -->
   <%- include('partials/validation-errors') %>
   <h1><%= title %></h1>
   <% if (!locals.user) {%>
     <p>Please log in to access your files !</p>
   <% } else { %>
+    <% if(locals.notification) {%>
+      <p><%- locals.notification %></p>
+    <% }; %>
     <h2>Folders</h2>
     <ul>
     <% if(locals.folders) { %>
@@ -36,7 +39,8 @@
     <p>
       <label for="foldername">Name</label>
       <input type="text" id="foldername" name="foldername" required minlength="1" maxlength="30">
-      <input name="parentFolderId" value="<%- locals.currentFolderId %>" type="hidden">
+      <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
+      <input name="folderType" value="<%-locals.folderType%>" type="hidden">
     </p>
     <button type="submit">Create</button>
    </form>

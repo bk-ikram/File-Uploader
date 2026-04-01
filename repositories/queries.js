@@ -1,4 +1,5 @@
 const { prisma } = require("../lib/prisma") ;
+const { getFolderHierarchy } = require("../generated/prisma/sql");
 
 async function insertUser(username, firstname, lastname,hashedPassword){
     return prisma.$transaction(async (tx)=> {
@@ -44,7 +45,7 @@ async function getUserByUsername(username){
 }
 
 async function getchildFolders(folderid) {
-    prisma.folder.findMany({
+    return prisma.folder.findMany({
         where: {
             parentId: folderid
         }
@@ -52,7 +53,7 @@ async function getchildFolders(folderid) {
 } 
 
 async function getFiles(folderid) {
-    prisma.file.findMany({
+    return prisma.file.findMany({
         where: {
             folderid: folderid
         }
@@ -100,6 +101,10 @@ async function createFolder(folderid, userid, name){
 
 }
 
+async function getFolderBreadcrumbs(folderId) {
+    return prisma.$queryRawTyped(getFolderHierarchy(folderId));
+}
+
 
 module.exports ={
     insertUser,
@@ -109,5 +114,6 @@ module.exports ={
     getUserMainFolder,
     getFiles,
     getchildFolders,
-    createFolder
+    createFolder,
+    getFolderBreadcrumbs
 }

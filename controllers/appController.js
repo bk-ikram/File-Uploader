@@ -4,10 +4,12 @@ const {
         insertUser, 
         getUserMainFolder,
         getFolderContents,
-        createFolder
+        createFolder,
+        getFolderBreadcrumbs
 
      } = require("../repositories/queries");
 const passport = require("passport");
+const { prisma } = require("../lib/prisma");
 
 exports.appGet = ( req, res) => {
     if(req.user){
@@ -81,34 +83,41 @@ exports.folderGet = async (req, res, next) => {
     const userId = req.user.id;
 
     //get current folderid. If none supplied, then serve user's main folder.
-    const folderid = req.params.folderid;
+    const folderid = parseInt(req.params.folderid);
     let mainFolderid;
     if(!folderid){
         const mainFolder = await getUserMainFolder(userId);
-        const mainFolderid = mainFolder.id;
+        mainFolderid = parseInt(mainFolder.id);
     }
     //get user's main folder
     const folderContents = await getFolderContents(folderid || mainFolderid);
 
-    
+    const folderBreadcrumbs = await getFolderBreadcrumbs(folderid|| mainFolderid);
+    const breadcrumbNames = folderBreadcrumbs.map( f => f.name);
     res.render("folder", {
         title: "Your files here",
         currentUrl: req.originalUrl,
-        currentFolderId: req.folderid || mainFolderid,
+        currentFolderId: folderid || mainFolderid,
+        folderType: folderid ? "subfolder" : "mainfolder",
         folders: folderContents.folders,
-        files: folderContents.files
+        files: folderContents.files,
+        notification: req.notification,
+        folderBreadcrumbs: folderBreadcrumbs
     })
 
 }
 
 exports.folderCreatePost = async(req, res, next) => {
-    const parentFolderId = req.body.parentFolderId;
-    const userid = req.userid;
+    const parentFolderId = parseInt(req.body.parentFolderId);
+    const userid = req.user.id;
     const name = req.body.foldername;
+    const folderType = req.body.folderType;
 
     await createFolder( parentFolderId, userid, name );
-
-    res.redirect(`/folder/${parentFolderId}`);
+    res.notification = "Your new folder has been created."
+    if(folderType === 'subfolder')
+        return res.redirect(`/folder/${parentFolderId}`);
+    return res.redirect('/folder');
 
 }
 
