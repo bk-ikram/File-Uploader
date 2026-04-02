@@ -23,15 +23,15 @@
         <form action="/signup" method="post">
             <p>
                 <label for="firstname">First Name:</label>
-                <input id="firstname" name="firstname" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.firstname ?? "" %>>
+                <input id="firstname" name="firstname" type="text" minlength="5" maxlength="30" required value="<%= locals.userInput?.firstname ?? '' %>">
             </p>
             <p>
                 <label for="lastname">Last Name:</label>
-                <input id="lastname" name="lastname" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.lastname ?? "" %>>
+                <input id="lastname" name="lastname" type="text" minlength="5" maxlength="30" required value="<%= locals.userInput?.lastname ?? '' %>">
             </p>
             <p>
                 <label for="username">Username:</label>
-                <input id="username" name="username" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.username ?? "" %>>
+                <input id="username" name="username" type="text" minlength="5" maxlength="30" required value="<%= locals.userInput?.username ?? '' %>">
             </p>
             <p>
                 <label for="password">Password:</label>

@@ -1,0 +1,1239 @@
+///// ./app.js /////
+const express = require("express");
+const path = require("node:path");
+const session = require("express-session");
+const passport = require("passport");
+const { prisma } = require('./lib/prisma');
+const { PrismaSessionStore } = require('@quixo3/prisma-session-store');
+const appRouter = require("./routes/appRouter");
+const moment = require("moment");
+
+require('dotenv').config();
+
+/** -------------   GENERAL SETUP   -------------  **/
+
+const app = express();
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.set("views", path.join(__dirname, "views"));
+app.set("view engine", "ejs");
+
+/** -------------   Make libraries available in ejs files   -------------  **/
+app.locals.moment = moment;
+
+/** -------------   SESSION SETUP   -------------  **/
+
+//add session store
+app.use(session({
+    secret: process.env.SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: new PrismaSessionStore(
+        prisma,
+        {
+            checkPeriod: 2 * 60 * 100,  //ms
+            dbRecordIdIsSessionId: true,
+            dbRecordIdFunction: undefined,
+
+        }
+    ),
+    cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } //30 days
+}));
+
+app.use(passport.session());
+
+/** ----------   PASSPORT AUTHENTICATION   ----------- **/
+
+require("./config/passport");
+
+app.use(passport.session());
+
+    //for debugging
+app.use((req, res, next) => {
+    console.log(`session: ${JSON.stringify(req.session)}`);
+    console.log(`user: ${JSON.stringify(req.user)}`);
+    next();
+})
+
+/** -------------------   ROUTERS   -------------------- **/
+app.use("/", appRouter);
+
+
+/** -------------------   SERVER   -------------------- **/
+// error handler
+app.use(function(err, req, res, next) {
+  // set locals, only providing error in development
+  res.locals.message = err.message;
+  res.locals.error = req.app.get('env') === 'development' ? err : {};
+
+  // render the error page
+  res.status(err.status || 500);
+  //TODO
+  //res.render('error');
+  console.log(err.stack);
+  console.log(err.message);
+  res.send("Something went wrong.", err.stack, err.message);
+});
+
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT,(error)=>{
+    if(error)
+        throw error;
+    console.log(`App is listening at port ${PORT}`);
+});
+///// ./config/passport.js /////
+const passport = require('passport');
+const LocalStrategy = require('passport-local');
+const { validPassword } = require('../lib/passwordUtils');
+const { 
+  getUserById,
+  getUserByUsername
+ } = require('../repositories/queries');
+
+async function verifyCallback(username, password, done) {
+  try {
+    const user = await getUserByUsername( username );
+    if (!user) {
+      return done(null, false, { message: 'Incorrect username or password.' }); 
+    }
+    const match = await validPassword(password, user.hash);
+    if(!match){
+      return done(null, false, { message: 'Incorrect username or password.' });
+    }
+    return done(null, user);
+  } catch(err) {
+    return done(err);
+  }
+  
+};
+
+const strategy = new LocalStrategy(verifyCallback);
+
+passport.use(strategy);
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await getUserById( id);
+
+    done(null, user);
+  }
+  catch(err){
+    done(err);
+  }
+});
+///// ./controllers/appController.js /////
+const { validationResult } = require("express-validator");
+const { genPassword } = require("../lib/passwordUtils");
+const { 
+        insertUser, 
+        getUserMainFolder,
+        getFolderContents,
+        createFolder,
+        getFolderBreadcrumbs,
+        deleteFolder,
+        deleteFile,
+        uploadFile,
+        getFile,
+        getFolderFilesRec
+
+     } = require("../repositories/queries");
+const passport = require("passport");
+const fs = require("fs/promises");
+
+
+exports.appGet = ( req, res) => {
+    if(req.user){
+        res.redirect("/folder");
+    }
+    else{
+        return res.render("index", {
+            title: "Welcome to File Uploader"
+        });
+    }
+};
+
+exports.signupGet = ( req, res) => {
+    res.render("signup", {
+        title: "Welcome to File Uploader"
+    });
+};
+
+exports.signupPost = async( req, res, next) => {
+    try{
+        const errors = validationResult(req);
+
+        if(!errors.isEmpty()){
+            res.errors = errors.array;
+            res.render("signup",{
+                title: "Registration Failed",
+                errors: errors.array(),
+                userInput: req.body,
+            })
+        }
+        else {
+            const { username, firstname, lastname, password } = req.body;
+            //generate hashed password
+            const hashedPassword = await genPassword(password);
+            //need to insert user into the db
+            await insertUser(username, firstname, lastname,hashedPassword);
+            //render the register page again, with success value
+            res.render("signup",{
+                title: "Registration Successful",
+                success: true,
+            })
+        }
+    }
+    catch (err) {
+        next(err);
+    }
+};
+
+exports.loginGet = ( req, res) => {
+    res.render("login", {
+        title: "Login to your Account",
+        loginFailed: req.query.error === "true"
+    });
+};
+
+exports.loginPost = passport.authenticate("local", {
+                        successRedirect: "/",
+                        failureRedirect: "/login?error=true",
+                        failureMessage: true
+                        });
+
+exports.logoutGet = (req, res, next) => {
+  req.logout(function(err) {
+    if (err) { return next(err); }
+    res.redirect('/');
+  });
+}
+
+exports.folderGet = async (req, res, next) => {
+    try{
+        const userId = req.user.id;
+
+    //get current folderid. If none supplied, then serve user's main folder.
+    const folderid = parseInt(req.params.folderid);
+    let mainFolderid;
+    if(!folderid){
+        const mainFolder = await getUserMainFolder(userId);
+        mainFolderid = parseInt(mainFolder.id);
+    }
+    //get user's main folder
+    const folderContents = await getFolderContents(folderid || mainFolderid);
+
+    const folderBreadcrumbs = await getFolderBreadcrumbs(folderid|| mainFolderid);
+    const notification = req.session.flashNotification;
+    delete req.session.flashNotification;
+    res.render("folder", {
+        title: "Your files here",
+        currentUrl: req.originalUrl,
+        currentFolderId: folderid || mainFolderid,
+        folderType: folderid ? "subfolder" : "mainfolder",
+        folders: folderContents.folders,
+        files: folderContents.files,
+        notification: notification,
+        folderBreadcrumbs: folderBreadcrumbs,
+        createFolder: req.query.createFolder === "true",
+        uploadFile: req.query.uploadFile === "true",
+
+    })
+    }
+    catch(err){
+        next(err);
+    }
+
+}
+
+exports.folderCreatePost = async(req, res, next) => {
+    try{
+        const parentFolderId = parseInt(req.body.parentFolderId);
+    const userid = req.user.id;
+    const name = req.body.foldername;
+    const folderType = req.body.folderType;
+
+    await createFolder( parentFolderId, userid, name );
+    req.session.flashNotification = "Your new folder has been created.";
+    if(folderType === 'subfolder')
+        return res.redirect(`/folder/${parentFolderId}`);
+    return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+    
+}
+
+exports.folderDeletePost = async(req, res, next) => {
+    try{
+        const folderId = parseInt(req.params.folderid);
+        const userid = req.user.id;
+        //would add folder owner verification here
+
+        //find the files that need to be deleted
+        const files = await getFolderFilesRec(folderId);
+
+        //delete folders and file records from db
+        await deleteFolder(folderId);
+
+        //delete files from storage
+    
+        console.log("the files to be deleted are: ", files);
+        for (const file of files){
+            await fs.unlink(file.url);
+        }
+
+        const { parentfolderType, parentFolderId} = req.body;
+        req.session.flashNotification = "The folder and its contents have been deleted";
+        if(parentfolderType === 'subfolder')
+            return res.redirect(`/folder/${parentFolderId}`);
+        return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+
+}
+
+exports.fileUploadPost = async(req, res, next) => {
+    try{
+        const folderId = parseInt(req.body.folderId);
+        const folderType = req.body.folderType;
+        const userid = req.user.id;
+        const { filename, size, path, originalname, mimetype } = req.file;
+        //insert file details.
+        await uploadFile(userid, folderId, originalname, filename, parseInt(size), mimetype, path);
+        if(folderType === 'subfolder')
+            return res.redirect(`/folder/${folderId}`);
+        return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+}
+
+exports.fileDeletePost = async(req, res, next) => {
+    try{
+        const fileId = parseInt(req.params.fileid);
+        const userid = req.user.id;
+        //would add file owner verification here
+        const file = await getFile(fileId);
+        if (!file)
+            return res.status(404).send("File not found");
+
+        //delete file from storage
+        await fs.unlink(file.url);
+        //delete db record
+        await deleteFile(fileId);
+        const { parentfolderType, parentFolderId} = req.body;
+        req.session.flashNotification = "The file has been deleted";
+        if(parentfolderType === 'subfolder')
+            return res.redirect(`/folder/${parentFolderId}`);
+        return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+}
+
+//fileDownloadGet
+exports.fileDownloadGet = async(req, res, next) => {
+    try{
+        const fileid = parseInt(req.params.fileid);
+        //get file.
+        const file = await getFile(fileid);
+        res.download(file.url, file.originalName);
+    }
+    catch(err){
+        next(err);
+    }
+}
+///// ./lib/passwordUtils.js /////
+const bcrypt = require('bcryptjs');
+const saltRounds = 10;
+
+const genPassword = async function genPassword(password){
+    try{
+        const hashedPassword = await bcrypt.hash(password, saltRounds)
+        return hashedPassword;
+    }
+    catch (err){
+        throw(err);
+    }
+};
+
+const validPassword = async function(password,hashedPassword){
+    try{
+        const match = await bcrypt.compare(password, hashedPassword);
+        return match;
+    }
+    catch(err){
+        throw(err);
+    }
+};
+
+module.exports = {
+    genPassword,
+    validPassword
+};
+///// ./lib/prisma.js /////
+require("dotenv").config();
+const { PrismaPg } = require("@prisma/adapter-pg") ;
+const { PrismaClient } = require("../generated/prisma/client.js") ;
+
+const connectionString = `${process.env.DB_CONNECTION_STRING}`;
+
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
+
+module.exports = { prisma };
+///// ./middleware/authMiddleware.js /////
+module.exports.isAuth = ( req, res, next ) => {
+    if(req.isAuthenticated()){
+        next();
+    }
+    else {
+        res.status(401).send('You are not authorized to view this resource.');
+    }
+
+}
+
+///// ./middleware/validation.js /////
+const { body } = require("express-validator");
+require('dotenv').config();
+const { 
+        getchildFolders
+
+     } = require("../repositories/queries");
+
+const emptyMsg = "cannot be empty";
+const lengthMsg = "should be between 5 and 30 characters";
+
+module.exports.signupValidation = [
+    body("firstname")
+        .trim()
+        .notEmpty()
+        .withMessage("First name " + emptyMsg)
+        .isLength({min: 5, max: 30})
+        .withMessage("First name " + lengthMsg),
+    body("lastname")
+        .trim()
+        .notEmpty()
+        .withMessage("Last name " + emptyMsg)
+        .isLength({min: 5, max: 30})
+        .withMessage("Last name " + lengthMsg),
+    body("username")
+        .trim()
+        .notEmpty()
+        .withMessage("Username " + emptyMsg)
+        .isLength({min: 4, max: 30})
+        .withMessage("Username " + lengthMsg),
+    body("password")
+        .trim()
+        .notEmpty()
+        .withMessage("Password " + emptyMsg)
+        .isLength({min: 5, max: 30})
+        .withMessage("Password " + lengthMsg),
+    body("conf-password").custom((value, { req }) => {
+        console.log("form body is ",JSON.stringify(req.body));
+        console.log(value, req.body.password);
+        if (value !== req.body.password) throw new Error("Password did not match");
+        return true;
+    }),
+];
+
+module.exports.folderValidation = [
+    body("foldername")
+        .trim()
+        .notEmpty()
+        .withMessage("Folder name " + emptyMsg)
+        .isLength({min: 5, max: 30})
+        .withMessage("Folder name " + lengthMsg)//add custom validation to make sure name does not already exist in current folder.
+        .custom(async (value, { req }) => {
+            const folderid = req.params.folderid
+            const nameInput = value.trim().lower();
+            const childFolders = await getchildFolders(folderid);
+            const match = childFolders.find( (existing) => existing.lower() == nameInput);
+            if(match) throw new Error(`The folder ${match} already exists. Please choose a different name.`)
+                return true;
+
+        })   
+];
+///// ./package.json /////
+{
+  "name": "file-uploader",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:docker:start": "docker compose up -d",
+    "db:docker": "psql -h localhost -U postgres -d file_upload_db",
+    "db:docker:stop": "docker compose down",
+    "db:local": "psql -U kiki -d file_upload_db"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bk-ikram/File-Uploader.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/bk-ikram/File-Uploader/issues"
+  },
+  "homepage": "https://github.com/bk-ikram/File-Uploader#readme",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.6.0",
+    "@prisma/client": "^7.6.0",
+    "@quixo3/prisma-session-store": "^3.1.19",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.3.1",
+    "ejs": "^5.0.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "express-validator": "^7.3.1",
+    "moment": "^2.30.1",
+    "multer": "^2.1.1",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
+    "pg": "^8.20.0",
+    "prisma": "^7.6.0"
+  }
+}
+
+///// ./prisma.config.js /////
+// This file was generated by Prisma, and assumes you have installed the following:
+// npm install --save-dev prisma dotenv
+import "dotenv/config";
+import { defineConfig } from "prisma/config";
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  typedSql: {
+    path: "./prisma/sql"
+  },
+  migrations: {
+    path: "prisma/migrations",
+  },
+  datasource: {
+    url: process.env["DB_CONNECTION_STRING"],
+  },
+});
+
+///// ./prisma/migrations/20260329020819_init/migration.sql /////
+-- CreateTable
+CREATE TABLE "User" (
+    "id" SERIAL NOT NULL,
+    "userName" TEXT NOT NULL,
+    "firstName" TEXT NOT NULL,
+    "lastName" TEXT NOT NULL,
+    "hash" TEXT NOT NULL,
+    "mainFolderId" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Folder" (
+    "id" SERIAL NOT NULL,
+    "userId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "parentId" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Folder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "File" (
+    "id" SERIAL NOT NULL,
+    "userid" INTEGER NOT NULL,
+    "folderid" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "size" INTEGER NOT NULL,
+    "url" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "File_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_userName_key" ON "User"("userName");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_mainFolderId_key" ON "User"("mainFolderId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Folder_parentId_name_key" ON "Folder"("parentId", "name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "File_folderid_name_key" ON "File"("folderid", "name");
+
+-- AddForeignKey
+ALTER TABLE "User" ADD CONSTRAINT "User_mainFolderId_fkey" FOREIGN KEY ("mainFolderId") REFERENCES "Folder"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Folder" ADD CONSTRAINT "Folder_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Folder" ADD CONSTRAINT "Folder_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "Folder"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "File" ADD CONSTRAINT "File_userid_fkey" FOREIGN KEY ("userid") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "File" ADD CONSTRAINT "File_folderid_fkey" FOREIGN KEY ("folderid") REFERENCES "Folder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+///// ./prisma/migrations/20260330205239_add_session_table/migration.sql /////
+-- CreateTable
+CREATE TABLE "Session" (
+    "id" TEXT NOT NULL,
+    "sid" TEXT NOT NULL,
+    "data" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Session_sid_key" ON "Session"("sid");
+
+///// ./prisma/migrations/20260401182913_add_on_delete_on_update_rules/migration.sql /////
+-- DropForeignKey
+ALTER TABLE "File" DROP CONSTRAINT "File_folderid_fkey";
+
+-- DropForeignKey
+ALTER TABLE "File" DROP CONSTRAINT "File_userid_fkey";
+
+-- DropForeignKey
+ALTER TABLE "Folder" DROP CONSTRAINT "Folder_parentId_fkey";
+
+-- DropForeignKey
+ALTER TABLE "Folder" DROP CONSTRAINT "Folder_userId_fkey";
+
+-- AddForeignKey
+ALTER TABLE "Folder" ADD CONSTRAINT "Folder_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Folder" ADD CONSTRAINT "Folder_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "Folder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "File" ADD CONSTRAINT "File_userid_fkey" FOREIGN KEY ("userid") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "File" ADD CONSTRAINT "File_folderid_fkey" FOREIGN KEY ("folderid") REFERENCES "Folder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+///// ./prisma/migrations/20260402145711_added_original_name_to_file/migration.sql /////
+/*
+  Warnings:
+
+  - Added the required column `originalName` to the `File` table without a default value. This is not possible if the table is not empty.
+
+*/
+-- AlterTable
+ALTER TABLE "File" ADD COLUMN     "originalName" TEXT NOT NULL;
+
+///// ./prisma/migrations/20260402150152_added_mime_type_to_file/migration.sql /////
+/*
+  Warnings:
+
+  - Added the required column `mimeType` to the `File` table without a default value. This is not possible if the table is not empty.
+
+*/
+-- AlterTable
+ALTER TABLE "File" ADD COLUMN     "mimeType" TEXT NOT NULL;
+
+///// ./prisma/migrations/20260402150804_changed_file_unique_constraints_on_name_and_original_name/migration.sql /////
+/*
+  Warnings:
+
+  - A unique constraint covering the columns `[name]` on the table `File` will be added. If there are existing duplicate values, this will fail.
+  - A unique constraint covering the columns `[folderid,originalName]` on the table `File` will be added. If there are existing duplicate values, this will fail.
+
+*/
+-- DropIndex
+DROP INDEX "File_folderid_name_key";
+
+-- CreateIndex
+CREATE UNIQUE INDEX "File_name_key" ON "File"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "File_folderid_originalName_key" ON "File"("folderid", "originalName");
+
+///// ./prisma/schema.prisma /////
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+  previewFeatures = ["typedSql"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  userName    String   @unique
+  firstName   String
+  lastName    String
+  hash        String
+  mainFolderId  Int?    @unique
+  createdAt   DateTime @default(now())
+
+  mainFolder  Folder?   @relation("UserMainFolder", fields: [mainFolderId], references: [id], onUpdate: Cascade)
+  folders     Folder[] @relation("UserFolderOwnership")
+  files       File[]   @relation("UserFileOwnership")
+}
+
+model Folder {
+  id          Int     @id @default(autoincrement()) 
+  userId      Int
+  name        String  
+  parentId    Int?
+  createdAt   DateTime  @default(now())
+  
+
+  user        User    @relation("UserFolderOwnership",fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade) 
+  parent      Folder?  @relation("ParentFolderOwnership",fields: [parentId], references: [id] , onDelete: Cascade, onUpdate: Cascade)
+  children    Folder[]  @relation("ParentFolderOwnership")
+  files       File[]  @relation("FolderFileOwnership")
+  mainOf      User?    @relation("UserMainFolder")
+
+  @@unique([parentId, name])        //no duplicate names in the same folder
+}
+
+model File {
+  id          Int      @id @default(autoincrement())
+  userid      Int
+  folderid    Int
+  name        String
+  originalName String
+  size        Int
+  mimeType    String
+  url         String
+  createdAt   DateTime  @default(now())
+
+  user        User     @relation("UserFileOwnership", fields: [userid], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  folder      Folder   @relation("FolderFileOwnership", fields: [folderid], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([name])        //no duplicate file name
+  @@unique([folderid, originalName])        //no duplicate file original name in folder
+}
+
+model Session {
+  id        String   @id
+  sid       String   @unique
+  data      String   
+  expiresAt   DateTime
+}
+///// ./prisma/sql/getFolderFilesRecursively.sql /////
+WITH RECURSIVE folder_tree AS (
+  SELECT id
+  FROM "Folder"
+  WHERE id = $1
+
+  UNION ALL
+
+  SELECT f.id
+  FROM "Folder" f
+  JOIN folder_tree ft ON f."parentId" = ft.id
+)
+
+SELECT *
+FROM "File"
+WHERE "folderid" IN (SELECT id FROM folder_tree);
+///// ./prisma/sql/getFolderHierarchy.sql /////
+;WITH RECURSIVE parentFolders AS (
+    -- Anchor member: Starts with the top folder
+    SELECT id, name, "parentId", 0 AS level
+    FROM "Folder"
+    WHERE id = $1 -- Or a specific ID like WHERE employee_id = 1
+    
+    UNION ALL
+    
+    -- Recursive member: Joins employees table with the CTE to find direct reports
+    SELECT f.id, f.name, f."parentId", p.level + 1
+    FROM "Folder" f
+    INNER JOIN parentFolders p ON p."parentId" = f.id
+)
+SELECT * FROM parentFolders ORDER BY level desc;
+///// ./repositories/queries.js /////
+const { prisma } = require("../lib/prisma") ;
+const { getFolderHierarchy
+        ,getFolderFilesRecursively
+ } = require("../generated/prisma/sql");
+
+async function insertUser(username, firstname, lastname,hashedPassword){
+    return prisma.$transaction(async (tx)=> {
+        // 1. Create the user first
+        const user = await tx.user.create({
+        data: {
+            userName: username,
+            firstName: firstname,
+            lastName: lastname,
+            hash: hashedPassword,
+        }
+    });
+        // 2. Create the main folder linked to the user
+        const mainFolder = await tx.folder.create({
+            data:{
+                name: username,
+                userId: user.id,
+            }
+        });
+
+        // 3. Update the user with the mainFolderId
+        return tx.user.update({
+            where: { id: user.id },
+            data: { mainFolderId: mainFolder.id }
+        });
+    });
+}
+
+async function getUserById(userId){
+    return prisma.user.findUnique({
+        where: {
+            id : userId
+        }
+    })
+}
+
+async function getUserByUsername(username){
+    return prisma.user.findUnique({
+        where: {
+            userName: username
+        }
+    })
+}
+
+async function getchildFolders(folderid) {
+    return prisma.folder.findMany({
+        where: {
+            parentId: folderid
+        }
+    })
+} 
+
+async function getFiles(folderid) {
+    return prisma.file.findMany({
+        where: {
+            folderid: folderid
+        }
+    })
+}
+
+async function getFile(fileid) {
+    return prisma.file.findUnique({
+        where: {
+            id: fileid
+        }
+    })
+}
+
+async function getFolderContents(folderid){
+
+    const [folders, files] = await Promise.all([getchildFolders(folderid), getFiles(folderid)]);
+    return { folders, files };
+}
+
+/*
+async function getFolderbyId(folder){
+    return prisma.folder.findUnique({
+        where: {
+            id: folder
+        }
+    })
+}
+    */
+
+async function getUserMainFolder(userId){
+    //chose to search in user table because there are fewer users than folders.
+    const user =  await prisma.user.findUnique({
+        where: {
+            id: userId
+        },
+        include: {
+            mainFolder: true
+        }
+    })
+
+    return user.mainFolder;
+}
+
+async function createFolder(folderid, userid, name){
+    return prisma.folder.create({
+        data: {
+            name: name,
+            parentId: folderid,
+            userId: userid,
+        }
+    })
+
+}
+
+async function getFolderBreadcrumbs(folderId) {
+    return prisma.$queryRawTyped(getFolderHierarchy(folderId));
+}
+
+async function deleteFolder(folderid){
+    return prisma.folder.delete({
+        where: {
+            id: folderid,
+        }
+    })
+}
+
+async function uploadFile(userid, folderid, originalName, name, size, mimeType, url) {
+    return prisma.file.create({
+        data:{
+            userid: userid,
+            folderid: folderid,
+            originalName: originalName,
+            name: name,
+            size: size,
+            mimeType: mimeType,
+            url: url,
+        }
+    })
+}
+
+async function deleteFile(fileid){
+    return prisma.file.delete({
+        where: {
+            id: fileid,
+        }
+    })
+}
+
+async function getFolderFilesRec(folderId) {
+    return prisma.$queryRawTyped(getFolderFilesRecursively(folderId));
+}
+
+
+module.exports ={
+    insertUser,
+    getUserById,
+    getUserByUsername,
+    getFolderContents,
+    getUserMainFolder,
+    getFiles,
+    getFile,
+    getchildFolders,
+    createFolder,
+    getFolderBreadcrumbs,
+    deleteFolder,
+    deleteFile,
+    uploadFile,
+    getFolderFilesRec,
+}
+///// ./routes/appRouter.js /////
+const { Router } = require('express');
+const appRouter = Router();
+const appController = require("../controllers/appController");
+const { signupValidation
+        ,folderValidation
+ } = require("../middleware/validation");
+const { isAuth } = require('../middleware/authMiddleware');
+const multer = require("multer");
+const upload = multer({ dest: 'uploads/'});
+
+//universal
+appRouter.use((req, res, next) => {
+    if (req.user) res.locals.user = req.user;
+    next();
+})
+
+//homepage
+appRouter.get("/",appController.appGet);
+
+//signup
+appRouter.get("/signup",appController.signupGet);
+
+appRouter.post("/signup"
+                ,signupValidation
+                ,appController.signupPost);
+
+//login
+
+appRouter.get("/login",appController.loginGet);
+
+appRouter.post("/login"
+                ,appController.loginPost);
+
+
+//logout
+appRouter.get("/logout", appController.logoutGet);
+
+
+//folder get
+//appRouter.get("/folder", isAuth, appController.folderGet);
+appRouter.get("/folder{/:folderid}", isAuth, appController.folderGet);
+
+//folder create post
+appRouter.post("/folder{/:folderid}/create"
+                ,isAuth
+                ,folderValidation
+                ,appController.folderCreatePost);
+
+//folder delete post
+appRouter.post("/folder/:folderid/delete"
+                ,isAuth
+                ,appController.folderDeletePost);
+
+//file upload post
+appRouter.post("/folder{/:folderid}/upload"
+                ,isAuth
+                ,upload.single('uploaded_file')
+                ,appController.fileUploadPost);
+
+//file delete post
+appRouter.post("/file/:fileid/delete"
+                ,isAuth
+                ,appController.fileDeletePost);
+
+appRouter.get("/file/:fileid/download"
+                ,isAuth
+                ,appController.fileDownloadGet
+)
+
+module.exports = appRouter;
+///// ./views/folder.ejs /////
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title><%= title %></title>
+</head>
+<body>
+  <% const actionBaseURL = locals.folderType === "subfolder" ? `/folder/${locals.currentFolderId}` : "/folder" %>
+  <%- include('partials/navBar', {folderBreadcrumbs: folderBreadcrumbs, folderType: folderType}) %>
+  <!-- Load errors, if any -->
+  <%- include('partials/validation-errors') %>
+  <h1><%= title %></h1>
+  <% if (!locals.user) {%>
+    <p>Please log in to access your files !</p>
+  <% } else { %>
+    <% if(locals.notification) {%>
+      <p><%- locals.notification %></p>
+    <% }; %>
+    <h2>Folders</h2>
+    <ul>
+    <% if(locals.folders) { %>
+        <% locals.folders.forEach( (f) => { %>
+            <li>
+              <a href="/folder/<%- f.id %>"><%- f.name %></a>
+              <form method="post" action="/folder/<%- f.id %>/delete">
+                <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
+                <input name="parentfolderType" value="<%-locals.folderType%>" type="hidden">
+                <button>Delete</button>
+              </form>
+            </li>
+        <% });%>
+    <% } %>
+    </ul>
+    <% if( locals.createFolder) { %>
+      <!-- Add Folders -->
+      <% const createURL = `${actionBaseURL}/create` %>
+      <form action="<%- createURL %>" method="post">
+        <h3>Create a New Folder</h3>
+        <p>
+          <label for="foldername">Name</label>
+          <input type="text" id="foldername" name="foldername" required minlength="1" maxlength="30">
+          <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
+          <input name="folderType" value="<%-locals.folderType%>" type="hidden">
+        </p>
+        <button type="submit">Create</button>
+   </form>
+    <% } else { %>
+        <a href="<%- actionBaseURL%>?createFolder=true">Create New Folder</a>
+    <% }; %>
+    <h2>Files</h2>
+    <ul>
+    <% if(locals.files) {%>
+        <% locals.files.forEach( (f) => { %>
+            <li><%- f.originalName %>
+              <form method="post" action="/file/<%- f.id %>/delete">
+                <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
+                <input name="parentFolderType" value="<%-locals.folderType%>" type="hidden">
+                <button>Delete</button>
+              </form>
+              <a href="/file/<%- f.id %>/download">Download</a>
+            </li>
+        <% });%>
+    <% } %>
+    </ul> 
+    <% if( locals.uploadFile) { %>
+      <!-- Add Folders -->
+      <% const createURL = `${actionBaseURL}/upload` %>
+      <form action="<%- createURL %>" method="post" enctype="multipart/form-data">
+        <h3>Upload a File</h3>
+        <p>
+          <input name="folderId" value="<%-locals.currentFolderId%>" type="hidden">
+                <input name="folderType" value="<%-locals.folderType%>" type="hidden">
+          <label>File attachment here. Max size is 25 mb.</label>
+          <input type="file" name="uploaded_file">
+        </p>
+        <button type="submit">Upload</button>
+   </form>
+    <% } else { %>
+        <a href="<%- actionBaseURL%>?uploadFile=true">Upload a File</a>
+    <% }; %>
+  <% };%>
+  
+</body>
+</html>
+///// ./views/index.ejs /////
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title><%= title %></title>
+</head>
+<body>
+  <%- include('partials/navBar') %>
+  <!-- Load errors, if any -->
+  <%- include('partials/validation-errors') %>
+  <h1><%= title %></h1>
+  <% if (locals.user) {%>
+    <p>Welcome back, <%= locals.user.firstname %> !</p>
+  <% }; %>
+</body>
+</html>
+///// ./views/login.ejs /////
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+    <%- include('partials/navBar') %>
+        <h1>
+            <%= title %>
+        </h1>
+        <!-- Load validation errors, if any -->
+        <%- include('partials/validation-errors') %>
+        <% if (locals.loginFailed) { %>
+            <p class="error">Invalid username or password. Please try again.</p>
+        <% } %>
+        <h2>Log into your account</h2>
+        <form action="/login" method="post">
+
+            <p>
+                <label for="username">Username:</label>
+                <input id="username" name="username" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.username ?? "" %>>
+            </p>
+            <p>
+                <label for="password">Password:</label>
+                <input id="password" name="password" type="password" minlength="5" maxlength="30" required>
+            </p>
+            <button type="submit">Login</button>
+        </form>
+</body>
+
+</html>
+///// ./views/partials/navBar.ejs /////
+<link rel="stylesheet" href="/styles/navbar.css">
+<div class="navbar">
+    <ul>
+        <li><a href="/">Home</a></li>
+        <% if (locals.user) {%>
+            <li>&#128516;<%= locals.user.userName%></li>
+            <li><a href="/logout">Logout</a></li>
+        <%} else {%>
+            <li><a href="/login">Login</a></li>
+            <li><a href="/signup">Register</a></li>
+        <% } %>
+    </ul>
+    <% if(locals.folderBreadcrumbs) {%>
+        <p>
+        <% locals.folderBreadcrumbs.map( (f, i) => { %>
+            <% if(i !== 0) { %>
+                <span>></span>
+            <% }; %>
+            <% if (locals.folderType === "mainfolder")  {%>
+                <a href="/folder/"><%= f.name %></a>
+            <%} else {%>
+                <a href="/folder/<%= f.id %>"><%= f.name %></a>
+            <% }; %>
+        <% }); %>
+        </p>
+    <%};%>
+</div>
+///// ./views/partials/validation-errors.ejs /////
+<% if (locals.errors) {%>
+    <ul>
+<%    locals.errors.map( (e) => {%>
+    <li><%= e.msg %></li>
+<%    })%>
+    </ul>
+<% }; %>
+///// ./views/signup.ejs /////
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>
+        <%= title %>
+    </title>
+</head>
+
+<body>
+    <%- include('partials/navBar') %>
+        <h1>
+            <%= title %>
+        </h1>
+        <!-- Load validation errors, if any -->
+        <%- include('partials/validation-errors') %>
+        <!-- If registration successful, inform user and offer login link -->
+        <% if (locals.success) {%>
+        <p>You have successfully registered. You can now <a href="/login">login</a> now!</p>
+        <% }; %>
+        <h2>Register a new account</h2>
+        <form action="/signup" method="post">
+            <p>
+                <label for="firstname">First Name:</label>
+                <input id="firstname" name="firstname" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.firstname ?? "" %>>
+            </p>
+            <p>
+                <label for="lastname">Last Name:</label>
+                <input id="lastname" name="lastname" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.lastname ?? "" %>>
+            </p>
+            <p>
+                <label for="username">Username:</label>
+                <input id="username" name="username" type="text" minlength="5" maxlength="30" required value=<%= locals.userInput?.username ?? "" %>>
+            </p>
+            <p>
+                <label for="password">Password:</label>
+                <input id="password" name="password" type="password" minlength="5" maxlength="30" required>
+            </p>
+            <p>
+                <label for="conf-password">Confirm Password:</label>
+                <input id="conf-password" name="conf-password" type="password" minlength="5" maxlength="30" required>
+            </p>
+            <button type="submit">Register</button>
+        </form>
+</body>
+
+</html>

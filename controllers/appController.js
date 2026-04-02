@@ -39,7 +39,6 @@ exports.signupPost = async( req, res, next) => {
         const errors = validationResult(req);
 
         if(!errors.isEmpty()){
-            res.errors = errors.array;
             res.render("signup",{
                 title: "Registration Failed",
                 errors: errors.array(),

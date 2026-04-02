@@ -21,8 +21,8 @@
     <% if(locals.folders) { %>
         <% locals.folders.forEach( (f) => { %>
             <li>
-              <a href="/folder/<%- f.id %>"><%- f.name %></a>
-              <form method="post" action="/folder/<%- f.id %>/delete">
+              <a href="/folder/<%= f.id %>"><%- f.name %></a>
+              <form method="post" action="/folder/<%= f.id %>/delete">
                 <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
                 <input name="parentfolderType" value="<%-locals.folderType%>" type="hidden">
                 <button>Delete</button>
@@ -52,12 +52,12 @@
     <% if(locals.files) {%>
         <% locals.files.forEach( (f) => { %>
             <li><%- f.originalName %>
-              <form method="post" action="/file/<%- f.id %>/delete">
+              <form method="post" action="/file/<%= f.id %>/delete">
                 <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
                 <input name="parentFolderType" value="<%-locals.folderType%>" type="hidden">
                 <button>Delete</button>
               </form>
-              <a href="/file/<%- f.id %>/download">Download</a>
+              <a href="/file/<%= f.id %>/download">Download</a>
             </li>
         <% });%>
     <% } %>
