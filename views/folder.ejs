@@ -6,8 +6,6 @@
 </head>
 <body>
   <% const actionBaseURL = locals.folderType === "subfolder" ? `/folder/${locals.currentFolderId}` : "/folder" %>
-  <% console.log("locals ",locals._locals); %>
-  <% console.log("full locals ",locals); %>
   <%- include('partials/navBar', {folderBreadcrumbs: folderBreadcrumbs, folderType: folderType}) %>
   <!-- Load errors, if any -->
   <%- include('partials/validation-errors') %>
@@ -26,7 +24,7 @@
               <a href="/folder/<%- f.id %>"><%- f.name %></a>
               <form method="post" action="/folder/<%- f.id %>/delete">
                 <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
-                <input name="folderType" value="<%-locals.folderType%>" type="hidden">
+                <input name="parentfolderType" value="<%-locals.folderType%>" type="hidden">
                 <button>Delete</button>
               </form>
             </li>
@@ -53,12 +51,13 @@
     <ul>
     <% if(locals.files) {%>
         <% locals.files.forEach( (f) => { %>
-            <li><%- f.name %>
+            <li><%- f.originalName %>
               <form method="post" action="/file/<%- f.id %>/delete">
                 <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
-                <input name="folderType" value="<%-locals.folderType%>" type="hidden">
+                <input name="parentFolderType" value="<%-locals.folderType%>" type="hidden">
                 <button>Delete</button>
               </form>
+              <a href="/file/<%- f.id %>/download">Download</a>
             </li>
         <% });%>
     <% } %>
@@ -66,23 +65,18 @@
     <% if( locals.uploadFile) { %>
       <!-- Add Folders -->
       <% const createURL = `${actionBaseURL}/upload` %>
-      <form action="<%- createURL %>" method="post">
+      <form action="<%- createURL %>" method="post" enctype="multipart/form-data">
         <h3>Upload a File</h3>
         <p>
-          <label for="filename">Name</label>
-          <input type="text" id="filename" name="filename" required minlength="1" maxlength="30">
           <input name="folderId" value="<%-locals.currentFolderId%>" type="hidden">
-          <input name="folderType" value="<%-locals.folderType%>" type="hidden">
-          <label>File attachment here.</label>
+                <input name="folderType" value="<%-locals.folderType%>" type="hidden">
+          <label>File attachment here. Max size is 25 mb.</label>
+          <input type="file" name="uploaded_file">
         </p>
         <button type="submit">Upload</button>
    </form>
     <% } else { %>
-        <form action="<%- actionBaseURL%>?uploadFile=true" method="get">
-          <input name="parentFolderId" value="<%-locals.currentFolderId%>" type="hidden">
-          <input name="folderType" value="<%-locals.folderType%>" type="hidden">
-          <button type="submit">Upload a File</button>
-        </form>
+        <a href="<%- actionBaseURL%>?uploadFile=true">Upload a File</a>
     <% }; %>
   <% };%>
   

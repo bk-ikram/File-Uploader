@@ -5,6 +5,8 @@ const { signupValidation
         ,folderValidation
  } = require("../middleware/validation");
 const { isAuth } = require('../middleware/authMiddleware');
+const multer = require("multer");
+const upload = multer({ dest: 'uploads/'});
 
 //universal
 appRouter.use((req, res, next) => {
@@ -35,8 +37,8 @@ appRouter.get("/logout", appController.logoutGet);
 
 
 //folder get
-appRouter.get("/folder", isAuth, appController.folderGet);
-appRouter.get("/folder/:folderid", isAuth, appController.folderGet);
+//appRouter.get("/folder", isAuth, appController.folderGet);
+appRouter.get("/folder{/:folderid}", isAuth, appController.folderGet);
 
 //folder create post
 appRouter.post("/folder{/:folderid}/create"
@@ -49,10 +51,20 @@ appRouter.post("/folder/:folderid/delete"
                 ,isAuth
                 ,appController.folderDeletePost);
 
+//file upload post
+appRouter.post("/folder{/:folderid}/upload"
+                ,isAuth
+                ,upload.single('uploaded_file')
+                ,appController.fileUploadPost);
+
 //file delete post
 appRouter.post("/file/:fileid/delete"
                 ,isAuth
                 ,appController.fileDeletePost);
 
+appRouter.get("/file/:fileid/download"
+                ,isAuth
+                ,appController.fileDownloadGet
+)
 
 module.exports = appRouter;

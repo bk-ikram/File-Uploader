@@ -49,14 +49,17 @@ model File {
   userid      Int
   folderid    Int
   name        String
+  originalName String
   size        Int
+  mimeType    String
   url         String
   createdAt   DateTime  @default(now())
 
   user        User     @relation("UserFileOwnership", fields: [userid], references: [id], onDelete: Cascade, onUpdate: Cascade)
   folder      Folder   @relation("FolderFileOwnership", fields: [folderid], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  @@unique([folderid, name])        //no duplicate file name in folder
+  @@unique([name])        //no duplicate file name
+  @@unique([folderid, originalName])        //no duplicate file original name in folder
 }
 
 model Session {

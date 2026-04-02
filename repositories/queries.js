@@ -1,5 +1,7 @@
 const { prisma } = require("../lib/prisma") ;
-const { getFolderHierarchy } = require("../generated/prisma/sql");
+const { getFolderHierarchy
+        ,getFolderFilesRecursively
+ } = require("../generated/prisma/sql");
 
 async function insertUser(username, firstname, lastname,hashedPassword){
     return prisma.$transaction(async (tx)=> {
@@ -60,6 +62,14 @@ async function getFiles(folderid) {
     })
 }
 
+async function getFile(fileid) {
+    return prisma.file.findUnique({
+        where: {
+            id: fileid
+        }
+    })
+}
+
 async function getFolderContents(folderid){
 
     const [folders, files] = await Promise.all([getchildFolders(folderid), getFiles(folderid)]);
@@ -113,6 +123,20 @@ async function deleteFolder(folderid){
     })
 }
 
+async function uploadFile(userid, folderid, originalName, name, size, mimeType, url) {
+    return prisma.file.create({
+        data:{
+            userid: userid,
+            folderid: folderid,
+            originalName: originalName,
+            name: name,
+            size: size,
+            mimeType: mimeType,
+            url: url,
+        }
+    })
+}
+
 async function deleteFile(fileid){
     return prisma.file.delete({
         where: {
@@ -121,6 +145,9 @@ async function deleteFile(fileid){
     })
 }
 
+async function getFolderFilesRec(folderId) {
+    return prisma.$queryRawTyped(getFolderFilesRecursively(folderId));
+}
 
 
 module.exports ={
@@ -130,9 +157,12 @@ module.exports ={
     getFolderContents,
     getUserMainFolder,
     getFiles,
+    getFile,
     getchildFolders,
     createFolder,
     getFolderBreadcrumbs,
     deleteFolder,
     deleteFile,
+    uploadFile,
+    getFolderFilesRec,
 }

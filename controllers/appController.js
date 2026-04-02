@@ -7,11 +7,15 @@ const {
         createFolder,
         getFolderBreadcrumbs,
         deleteFolder,
-        deleteFile
+        deleteFile,
+        uploadFile,
+        getFile,
+        getFolderFilesRec
 
      } = require("../repositories/queries");
 const passport = require("passport");
-const { prisma } = require("../lib/prisma");
+const fs = require("fs/promises");
+
 
 exports.appGet = ( req, res) => {
     if(req.user){
@@ -81,11 +85,8 @@ exports.logoutGet = (req, res, next) => {
 }
 
 exports.folderGet = async (req, res, next) => {
-    console.log("requested url: ",req.originalUrl);
-    console.log("query params ",req.query);
-    console.log(" params ",req.params);
-    console.log("attempting to access folder");
-    const userId = req.user.id;
+    try{
+        const userId = req.user.id;
 
     //get current folderid. If none supplied, then serve user's main folder.
     const folderid = parseInt(req.params.folderid);
@@ -98,6 +99,8 @@ exports.folderGet = async (req, res, next) => {
     const folderContents = await getFolderContents(folderid || mainFolderid);
 
     const folderBreadcrumbs = await getFolderBreadcrumbs(folderid|| mainFolderid);
+    const notification = req.session.flashNotification;
+    delete req.session.flashNotification;
     res.render("folder", {
         title: "Your files here",
         currentUrl: req.originalUrl,
@@ -105,46 +108,119 @@ exports.folderGet = async (req, res, next) => {
         folderType: folderid ? "subfolder" : "mainfolder",
         folders: folderContents.folders,
         files: folderContents.files,
-        notification: req.notification,
+        notification: notification,
         folderBreadcrumbs: folderBreadcrumbs,
         createFolder: req.query.createFolder === "true",
         uploadFile: req.query.uploadFile === "true",
 
     })
+    }
+    catch(err){
+        next(err);
+    }
 
 }
 
 exports.folderCreatePost = async(req, res, next) => {
-    const parentFolderId = parseInt(req.body.parentFolderId);
+    try{
+        const parentFolderId = parseInt(req.body.parentFolderId);
     const userid = req.user.id;
     const name = req.body.foldername;
     const folderType = req.body.folderType;
 
     await createFolder( parentFolderId, userid, name );
-    res.notification = "Your new folder has been created."
+    req.session.flashNotification = "Your new folder has been created.";
     if(folderType === 'subfolder')
         return res.redirect(`/folder/${parentFolderId}`);
     return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+    
 }
 
 exports.folderDeletePost = async(req, res, next) => {
-    const folderId = parseInt(req.body.folderid);
-    const userid = req.user.id;
-    //would add folder owner verification here
-    await deleteFolder(folderId);
-    res.notification = "The folder and its contents have been deleted";
-    if(folderType === 'subfolder')
-        return res.redirect(`/folder/${parentFolderId}`);
-    return res.redirect('/folder');
+    try{
+        const folderId = parseInt(req.params.folderid);
+        const userid = req.user.id;
+        //would add folder owner verification here
+
+        //find the files that need to be deleted
+        const files = await getFolderFilesRec(folderId);
+
+        //delete folders and file records from db
+        await deleteFolder(folderId);
+
+        //delete files from storage
+    
+        console.log("the files to be deleted are: ", files);
+        for (const file of files){
+            await fs.unlink(file.url);
+        }
+
+        const { parentfolderType, parentFolderId} = req.body;
+        req.session.flashNotification = "The folder and its contents have been deleted";
+        if(parentfolderType === 'subfolder')
+            return res.redirect(`/folder/${parentFolderId}`);
+        return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+
+}
+
+exports.fileUploadPost = async(req, res, next) => {
+    try{
+        const folderId = parseInt(req.body.folderId);
+        const folderType = req.body.folderType;
+        const userid = req.user.id;
+        const { filename, size, path, originalname, mimetype } = req.file;
+        //insert file details.
+        await uploadFile(userid, folderId, originalname, filename, parseInt(size), mimetype, path);
+        if(folderType === 'subfolder')
+            return res.redirect(`/folder/${folderId}`);
+        return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
 }
 
 exports.fileDeletePost = async(req, res, next) => {
-    const fileId = parseInt(req.body.fileid);
-    const userid = req.user.id;
-    //would add file owner verification here
-    await deleteFile(fileId);
-    res.notification = "The file has been deleted";
-    if(folderType === 'subfolder')
-        return res.redirect(`/folder/${parentFolderId}`);
-    return res.redirect('/folder');
+    try{
+        const fileId = parseInt(req.params.fileid);
+        const userid = req.user.id;
+        //would add file owner verification here
+        const file = await getFile(fileId);
+        if (!file)
+            return res.status(404).send("File not found");
+
+        //delete file from storage
+        await fs.unlink(file.url);
+        //delete db record
+        await deleteFile(fileId);
+        const { parentfolderType, parentFolderId} = req.body;
+        req.session.flashNotification = "The file has been deleted";
+        if(parentfolderType === 'subfolder')
+            return res.redirect(`/folder/${parentFolderId}`);
+        return res.redirect('/folder');
+    }
+    catch(err){
+        next(err);
+    }
+}
+
+//fileDownloadGet
+exports.fileDownloadGet = async(req, res, next) => {
+    try{
+        const fileid = parseInt(req.params.fileid);
+        //get file.
+        const file = await getFile(fileid);
+        res.download(file.url, file.originalName);
+    }
+    catch(err){
+        next(err);
+    }
 }
